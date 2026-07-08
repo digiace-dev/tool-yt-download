@@ -13,10 +13,21 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-const YT_DLP = ['python', '-m', 'yt_dlp'];
+const NODE_EXE = 'C:\\laragon\\bin\\nodejs\\node-v22\\node.exe';
+const YT_DLP = [
+  'C:\\Users\\toro\\AppData\\Local\\Programs\\Python\\Python310\\python.exe', '-m', 'yt_dlp',
+  '--js-runtimes', `node:${NODE_EXE}`,
+  '--remote-components', 'ejs:github'
+];
 
 function sanitizeFilename(name) {
-  return name.replace(/[<>:"/\\|?*]/g, '_').substring(0, 200);
+  return name.replace(/[<>:"/\\|?*]/g, '_').replace(/[^\x20-\x7E]/g, '_').substring(0, 200);
+}
+
+function contentDisposition(filename, ext) {
+  const ascii = `${filename}.${ext}`.replace(/[^\x20-\x7E]/g, '_');
+  const encoded = encodeURIComponent(`${filename}.${ext}`);
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 function isThreads(url) {
@@ -91,13 +102,16 @@ app.post('/api/info', async (req, res) => {
     return;
   }
 
-  const args = [...YT_DLP, '--dump-json', '--no-download', url];
+  // Strip playlist params from URL to avoid extracting entire playlist
+  const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '');
+  const args = [...YT_DLP, '--dump-json', '--no-download', '--no-playlist', singleUrl];
   const proc = execFile(args[0], args.slice(1), {
-    timeout: 30000,
+    timeout: 60000,
     maxBuffer: 10 * 1024 * 1024
   }, (err, stdout, stderr) => {
     if (err) {
-      const msg = stderr.split('\n').filter(l => l.trim()).pop() || err.message;
+      const lines = stderr.split('\n').filter(l => l.trim() && !l.startsWith('WARNING') && !l.startsWith('Deprecated'));
+      const msg = lines.pop() || err.message;
       return res.status(400).json({ error: msg });
     }
     try {
@@ -141,7 +155,7 @@ app.post('/api/download', async (req, res) => {
       const resp = await fetch(videoUrl);
       if (!resp.ok) throw new Error('Failed to fetch video');
 
-      res.setHeader('Content-Disposition', `attachment; filename="${baseName}.mp4"`);
+      res.setHeader('Content-Disposition', contentDisposition(baseName, 'mp4'));
       res.setHeader('Content-Type', 'video/mp4');
       Readable.fromWeb(resp.body).pipe(res);
     } catch (e) {
@@ -157,9 +171,9 @@ app.post('/api/download', async (req, res) => {
   if (type === 'audio') {
     args = [...YT_DLP, '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', tmpFile, url];
   } else if (format_id) {
-    args = [...YT_DLP, '-f', `${format_id}+bestaudio[ext=m4a]/best[ext=mp4]`, '--remux-video', 'mp4', '-o', tmpFile, url];
+    args = [...YT_DLP, '-f', `${format_id}+bestaudio/best`, '--remux-video', 'mp4', '-o', tmpFile, url];
   } else {
-    args = [...YT_DLP, '-f', 'best[ext=mp4]/best', '-o', tmpFile, url];
+    args = [...YT_DLP, '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--remux-video', 'mp4', '-o', tmpFile, url];
   }
 
   const proc = spawn(args[0], args.slice(1), {
@@ -172,25 +186,25 @@ app.post('/api/download', async (req, res) => {
 
   proc.on('error', () => {
     res.status(500).json({ error: 'Failed to start download process.' });
-    try { fs.unlinkSync(tmpFile); } catch (_) {}
+    try { fs.unlinkSync(tmpFile); } catch (_) { }
   });
 
   proc.on('close', (code) => {
     if (code !== 0) {
       const msg = stderrBuf.split('\n').filter(l => l.trim()).pop() || 'Download failed';
       res.status(400).json({ error: msg });
-      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      try { fs.unlinkSync(tmpFile); } catch (_) { }
       return;
     }
-    res.setHeader('Content-Disposition', `attachment; filename="${baseName}.${ext}"`);
+    res.setHeader('Content-Disposition', contentDisposition(baseName, ext));
     res.setHeader('Content-Type', type === 'audio' ? 'audio/mpeg' : 'video/mp4');
     const stream = fs.createReadStream(tmpFile);
     stream.pipe(res);
     stream.on('end', () => {
-      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      try { fs.unlinkSync(tmpFile); } catch (_) { }
     });
     stream.on('error', () => {
-      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      try { fs.unlinkSync(tmpFile); } catch (_) { }
     });
   });
 });
