@@ -15,7 +15,7 @@ app.use(express.static(__dirname));
 
 const NODE_EXE = 'C:\\laragon\\bin\\nodejs\\node-v22\\node.exe';
 const YT_DLP = [
-  'C:\\Users\\toro\\AppData\\Local\\Programs\\Python\\Python310\\python.exe', '-m', 'yt_dlp',
+  'C:\\laragon\\bin\\python\\python-3.13\\python.exe', '-m', 'yt_dlp',
   '--js-runtimes', `node:${NODE_EXE}`,
   '--remote-components', 'ejs:github'
 ];
@@ -141,6 +141,9 @@ app.post('/api/download', async (req, res) => {
 
   const baseName = filename ? sanitizeFilename(filename) : 'download';
 
+  // Strip playlist params to download only the single video
+  const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '');
+
   if (isThreads(url)) {
     try {
       const result = await threadsFetchInfo(url);
@@ -169,11 +172,11 @@ app.post('/api/download', async (req, res) => {
 
   let args;
   if (type === 'audio') {
-    args = [...YT_DLP, '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', tmpFile, url];
+    args = [...YT_DLP, '--no-playlist', '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', tmpFile, singleUrl];
   } else if (format_id) {
-    args = [...YT_DLP, '-f', `${format_id}+bestaudio/best`, '--remux-video', 'mp4', '-o', tmpFile, url];
+    args = [...YT_DLP, '--no-playlist', '-f', `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/best`, '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
   } else {
-    args = [...YT_DLP, '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best', '--remux-video', 'mp4', '-o', tmpFile, url];
+    args = [...YT_DLP, '--no-playlist', '-f', 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
   }
 
   const proc = spawn(args[0], args.slice(1), {

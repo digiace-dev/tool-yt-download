@@ -598,7 +598,7 @@
         const btns = actions.querySelectorAll('.btn-download');
         btns.forEach(btn => {
           const type = btn.dataset.type;
-          btn.onclick = () => downloadMedia(url, type, data);
+          btn.onclick = () => downloadMedia(urlInput.value.trim(), type, data);
         });
 
         resultCard.classList.add('visible');
@@ -725,8 +725,16 @@
         // trigger file download
         const blob = await res.blob();
         const contentDisp = res.headers.get('Content-Disposition') || '';
-        const match = contentDisp.match(/filename="?(.+?)"?$/);
-        const filename = match ? match[1] : `${info.title || 'download'}.${type === 'audio' ? 'mp3' : 'mp4'}`;
+        const utf8Match = contentDisp.match(/filename\*=UTF-8''([^;\s]+)/i);
+        const plainMatch = contentDisp.match(/filename="([^"]+)"/i);
+        let filename;
+        if (utf8Match) {
+          filename = decodeURIComponent(utf8Match[1]);
+        } else if (plainMatch) {
+          filename = plainMatch[1];
+        } else {
+          filename = `${info.title || 'download'}.${type === 'audio' ? 'mp3' : 'mp4'}`;
+        }
 
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
