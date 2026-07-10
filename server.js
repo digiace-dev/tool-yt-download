@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-const NODE_EXE = 'C:\\laragon\\bin\\nodejs\\node-v22\\node.exe';
+const NODE_EXE = process.execPath; // ponytail: always points to running Node binary, no hardcoded path
 const YT_DLP = [
   'C:\\laragon\\bin\\python\\python-3.13\\python.exe', '-m', 'yt_dlp',
   '--js-runtimes', `node:${NODE_EXE}`,
