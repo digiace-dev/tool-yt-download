@@ -82,7 +82,7 @@ app.post('/api/info', async (req, res) => {
       const firstVideo = videos[0] || {};
       const titleMatch = result.data.match(/<title[^>]*>([^<]+)<\/title>/i) || result.title;
       res.json({
-        title: titleMatch ? titleMatch[1]?.trim() : 'Threads Video',
+        title: typeof titleMatch === 'string' ? titleMatch : (titleMatch ? titleMatch[1]?.trim() : 'Threads Video'),
         thumbnail: firstVideo.thumbnail || '',
         duration: null,
         resolution: null,
@@ -103,7 +103,7 @@ app.post('/api/info', async (req, res) => {
   }
 
   // Strip playlist params from URL to avoid extracting entire playlist
-  const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '');
+  const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '').replace(/\?&/, '?').replace(/&$/, '');
   const args = [...YT_DLP, '--dump-json', '--no-download', '--no-playlist', singleUrl];
   const proc = execFile(args[0], args.slice(1), {
     timeout: 60000,
@@ -120,7 +120,7 @@ app.post('/api/info', async (req, res) => {
         title: d.title || 'Untitled',
         thumbnail: d.thumbnail || '',
         duration: d.duration || null,
-        resolution: d.resolution || d.height ? `${d.height}p` : null,
+        resolution: d.resolution || (d.height ? `${d.height}p` : null),
         ext: d.ext || 'mp4',
         formats: (d.formats || []).map(f => ({
           format_id: f.format_id,
@@ -142,7 +142,7 @@ app.post('/api/download', async (req, res) => {
   const baseName = filename ? sanitizeFilename(filename) : 'download';
 
   // Strip playlist params to download only the single video
-  const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '');
+  const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '').replace(/\?&/, '?').replace(/&$/, '');
 
   if (isThreads(url)) {
     try {
@@ -180,9 +180,13 @@ app.post('/api/download', async (req, res) => {
   }
 
   const proc = spawn(args[0], args.slice(1), {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 600000
+    stdio: ['ignore', 'pipe', 'pipe']
   });
+
+  // Manual timeout since spawn() doesn't support timeout option
+  const timeout = setTimeout(() => {
+    proc.kill('SIGTERM');
+  }, 600000);
 
   let stderrBuf = '';
   proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString(); });
@@ -193,6 +197,7 @@ app.post('/api/download', async (req, res) => {
   });
 
   proc.on('close', (code) => {
+    clearTimeout(timeout);
     if (code !== 0) {
       const msg = stderrBuf.split('\n').filter(l => l.trim()).pop() || 'Download failed';
       res.status(400).json({ error: msg });
@@ -201,17 +206,26 @@ app.post('/api/download', async (req, res) => {
     }
     res.setHeader('Content-Disposition', contentDisposition(baseName, ext));
     res.setHeader('Content-Type', type === 'audio' ? 'audio/mpeg' : 'video/mp4');
+    try {
+      const stats = fs.statSync(tmpFile);
+      res.setHeader('Content-Length', stats.size);
+    } catch (_) { }
     const stream = fs.createReadStream(tmpFile);
-    stream.pipe(res);
-    stream.on('end', () => {
+    stream.on('error', (err) => {
+      if (!res.headersSent) res.status(500).json({ error: 'Download interrupted' });
+      else res.destroy();
       try { fs.unlinkSync(tmpFile); } catch (_) { }
     });
-    stream.on('error', () => {
+    stream.pipe(res);
+    res.on('finish', () => {
+      try { fs.unlinkSync(tmpFile); } catch (_) { }
+    });
+    res.on('close', () => {
       try { fs.unlinkSync(tmpFile); } catch (_) { }
     });
   });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:3000`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });

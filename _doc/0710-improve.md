@@ -2,7 +2,7 @@
 
 ## 🔴 URGENT BUGS
 
-### 1. Operator precedence bug — resolution display
+### 1. ✅ DONE - Operator precedence bug — resolution display
 **File:** [`server.js:123`](../server.js:123)
 ```js
 resolution: d.resolution || d.height ? `${d.height}p` : null,
@@ -14,7 +14,7 @@ If `d.resolution` is `"1920x1080"` but `d.height` is `undefined` → returns `"u
 
 ---
 
-### 2. Threads title — string vs array mismatch
+### 2. ✅ DONE - Threads title — string vs array mismatch
 **File:** [`server.js:83-85`](../server.js:83)
 ```js
 const titleMatch = result.data.match(/<title[^>]*>([^<]+)<\/title>/i) || result.title;
@@ -27,7 +27,7 @@ When regex fails, `titleMatch = result.title` (a string). `titleMatch[1]` return
 
 ---
 
-### 3. URL param stripping produces malformed URL
+### 3. ✅ DONE - URL param stripping produces malformed URL
 **File:** [`server.js:106`](../server.js:106), [`server.js:145`](../server.js:145)
 ```js
 const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '');
@@ -41,7 +41,7 @@ After replace: `https://youtube.com/watch?&v=abc` → malformed `?&`.
 
 ---
 
-### 4. `spawn()` ignores `timeout` option
+### 4. ✅ DONE - `spawn()` ignores `timeout` option
 **File:** [`server.js:182-184`](../server.js:182)
 ```js
 const proc = spawn(args[0], args.slice(1), {
@@ -68,7 +68,7 @@ Same fragility as the Python 3.10 path we just fixed. If Node install moves, ENO
 
 ---
 
-### 6. Stream error after headers sent — silent corruption
+### 6. ✅ DONE - Stream error after headers sent — silent corruption
 **File:** [`server.js:204-211`](../server.js:204)
 ```js
 const stream = fs.createReadStream(tmpFile);
@@ -83,7 +83,7 @@ If read stream errors mid-pipe, response headers already sent (200 OK). Client r
 
 ---
 
-### 7. Client loads entire download into memory
+### 7. ✅ DONE - Client loads entire download into memory
 **File:** [`index.html:726`](../index.html:726)
 ```js
 const blob = await res.blob();
@@ -96,28 +96,31 @@ Entire file buffered in browser RAM. A 500MB+ video crashes the tab.
 
 ## 🟢 MINOR
 
-### 8. Console log hardcoded port
+### 8. ✅ DONE - Console log hardcoded port
 **File:** [`server.js:216`](../server.js:216)
 ```js
 console.log(`Server running at http://localhost:3000`);
 ```
 Should use `PORT` variable.
 
-### 9. No `Content-Length` header on download
+### 9. ✅ DONE - No `Content-Length` header on download
 **File:** [`server.js:202`](../server.js:202)
 File size known from temp file stat. Without Content-Length, browser can't show download progress.
 
-### 10. CORS wide open
+### 10. ℹ️ NOTED - CORS wide open
 **File:** [`server.js:12`](../server.js:12)
 `cors()` allows any origin. OK for local use. If deployed, restrict origins.
 
 ---
 
 ## Priority Order
-1. **Fix #1** — resolution display bug (user-visible, easy fix)
-2. **Fix #3** — malformed URL (breaks yt_dlp for some URLs)
-3. **Fix #2** — Threads title (broken for some Threads posts)
-4. **Fix #4** — spawn timeout (can hang server)
-5. **Fix #5** — NODE_EXE path (prevents future ENOENT)
-6. **Fix #6** — stream error handling (data integrity)
-7. **Fix #7** — client memory (UX for large files)
+1. ✅ **Fix #1** — resolution display bug (user-visible, easy fix)
+2. ✅ **Fix #3** — malformed URL (breaks yt_dlp for some URLs)
+3. ✅ **Fix #2** — Threads title (broken for some Threads posts)
+4. ✅ **Fix #4** — spawn timeout (can hang server)
+5. ✅ **Fix #5** — NODE_EXE path (prevents future ENOENT)
+6. ✅ **Fix #6** — stream error handling (data integrity)
+7. ✅ **Fix #7** — client memory (UX for large files)
+8. ✅ **Fix #8** — console log port variable
+9. ✅ **Fix #9** — Content-Length header
+10. ℹ️ **Fix #10** — CORS (noted, no action needed for local)

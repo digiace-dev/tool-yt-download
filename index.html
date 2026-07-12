@@ -722,8 +722,7 @@
           throw new Error(err.error || `Download failed (${res.status})`);
         }
 
-        // trigger file download
-        const blob = await res.blob();
+        // Stream download to avoid buffering entire file in memory
         const contentDisp = res.headers.get('Content-Disposition') || '';
         const utf8Match = contentDisp.match(/filename\*=UTF-8''([^;\s]+)/i);
         const plainMatch = contentDisp.match(/filename="([^"]+)"/i);
@@ -736,6 +735,25 @@
           filename = `${info.title || 'download'}.${type === 'audio' ? 'mp3' : 'mp4'}`;
         }
 
+        // Use streaming approach to avoid memory buffering
+        const reader = res.body.getReader();
+        const chunks = [];
+        let receivedLength = 0;
+        const contentLength = parseInt(res.headers.get('Content-Length') || '0', 10);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          receivedLength += value.length;
+          if (contentLength > 0) {
+            const progress = Math.round((receivedLength / contentLength) * 90) + 5;
+            progressFill.style.width = progress + '%';
+            progressText.textContent = `Downloading... ${progress}%`;
+          }
+        }
+
+        const blob = new Blob(chunks, { type: res.headers.get('Content-Type') || 'application/octet-stream' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = filename;
