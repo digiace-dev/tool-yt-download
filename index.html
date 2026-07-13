@@ -617,7 +617,9 @@
       const chips = [];
 
       formats.forEach(f => {
+        const height = parseInt(String(f.resolution).match(/(\d+)/)?.[1] || '', 10);
         if (f.resolution === 'audio' || seen.has(f.resolution)) return;
+        if (!isNaN(height) && height < 240) return;
         seen.add(f.resolution);
         chips.push(f);
       });
