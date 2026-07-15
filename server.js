@@ -14,11 +14,94 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 const NODE_EXE = process.execPath; // ponytail: always points to running Node binary, no hardcoded path
-const YT_DLP = [
-  'C:\\laragon\\bin\\python\\python-3.13\\python.exe', '-m', 'yt_dlp',
-  '--js-runtimes', `node:${NODE_EXE}`,
-  '--remote-components', 'ejs:github'
-];
+const { spawnSync } = require('child_process');
+
+// Resolve how to invoke yt-dlp:
+// 1. Prefer a standalone `yt-dlp` executable on PATH (where.exe)
+// 2. Fallback to `python -m yt_dlp` using whichever `python` is on PATH
+function resolveYtDlpBase() {
+  try {
+    const which = spawnSync('where', ['yt-dlp'], { encoding: 'utf8' });
+    if (which.status === 0 && which.stdout) {
+      const exe = which.stdout.split(/\r?\n/)[0].trim();
+      if (exe) return [exe];
+    }
+  } catch (_) { }
+  // fallback
+  const pythonCmd = process.env.PYTHON || 'python';
+  return [pythonCmd, '-m', 'yt_dlp'];
+}
+
+// Resolve ffmpeg directory: env var first, then where.exe, then WinGet scan, then null
+let _ffmpegDir = undefined; // undefined = not resolved yet
+function resolveFfmpegLocation() {
+  if (_ffmpegDir !== undefined) return _ffmpegDir;
+  // 1. Explicit env var
+  if (process.env.FFMPEG_LOCATION) {
+    _ffmpegDir = process.env.FFMPEG_LOCATION;
+    return _ffmpegDir;
+  }
+  // 2. Auto-detect via where.exe / where
+  try {
+    const which = spawnSync('where', ['ffmpeg'], { encoding: 'utf8' });
+    if (which.status === 0 && which.stdout) {
+      const exe = which.stdout.split(/\r?\n/)[0].trim();
+      if (exe) {
+        _ffmpegDir = path.dirname(exe);
+        return _ffmpegDir;
+      }
+    }
+  } catch (_) { }
+  // 3. Scan WinGet Packages dir for Gyan.FFmpeg* containing ffmpeg.exe
+  try {
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const pkgDir = path.join(localAppData, 'Microsoft', 'WinGet', 'Packages');
+    if (fs.existsSync(pkgDir)) {
+      const entries = fs.readdirSync(pkgDir).filter(d => /^Gyan\.FFmpeg/i.test(d));
+      for (const entry of entries) {
+        const binDir = path.join(pkgDir, entry);
+        // WinGet nests the actual bin under a subfolder like ffmpeg-8.1.1-essentials_build\bin
+        const dirs = [binDir];
+        try {
+          for (const sub of fs.readdirSync(binDir)) {
+            dirs.push(path.join(binDir, sub, 'bin'));
+          }
+        } catch (_) { }
+        for (const d of dirs) {
+          if (fs.existsSync(path.join(d, 'ffmpeg.exe'))) {
+            _ffmpegDir = d;
+            return _ffmpegDir;
+          }
+        }
+      }
+    }
+  } catch (_) { }
+  _ffmpegDir = null;
+  return _ffmpegDir;
+}
+
+const YT_DLP_BASE = [...resolveYtDlpBase(), '--js-runtimes', `node:${NODE_EXE}`, '--remote-components', 'ejs:github'];
+
+// Helper: build arguments and child env for yt-dlp per-request so we can
+// pick up FFMPEG_LOCATION set after process start and ensure child process
+// PATH contains the ffmpeg bin directory.
+function buildYtDlpArgs(extraArgs = []) {
+  const args = [...YT_DLP_BASE, ...extraArgs];
+  const ff = resolveFfmpegLocation();
+  if (ff) {
+    args.push('--ffmpeg-location', ff);
+  }
+  // Build env for child process
+  const childEnv = { ...process.env };
+  if (ff) {
+    // Prepend ffmpeg bin to PATH so other tools can find ffmpeg/ffprobe
+    const sep = process.platform === 'win32' ? ';' : ':';
+    const orig = process.env.PATH || '';
+    childEnv.PATH = `${ff}${sep}${orig}`;
+    childEnv.FFMPEG_LOCATION = ff;
+  }
+  return { args, env: childEnv };
+}
 
 function sanitizeFilename(name) {
   return name.replace(/[<>:"/\\|?*]/g, '_').replace(/[^\x20-\x7E]/g, '_').substring(0, 200);
@@ -104,10 +187,11 @@ app.post('/api/info', async (req, res) => {
 
   // Strip playlist params from URL to avoid extracting entire playlist
   const singleUrl = url.replace(/[?&]list=[^&]*/g, '').replace(/[?&]index=[^&]*/g, '').replace(/\?$/, '').replace(/\?&/, '?').replace(/&$/, '');
-  const args = [...YT_DLP, '--dump-json', '--no-download', '--no-playlist', singleUrl];
-  const proc = execFile(args[0], args.slice(1), {
+  const infoReq = buildYtDlpArgs(['--dump-json', '--no-download', '--no-playlist', singleUrl]);
+  const proc = execFile(infoReq.args[0], infoReq.args.slice(1), {
     timeout: 60000,
-    maxBuffer: 10 * 1024 * 1024
+    maxBuffer: 10 * 1024 * 1024,
+    env: infoReq.env
   }, (err, stdout, stderr) => {
     if (err) {
       const lines = stderr.split('\n').filter(l => l.trim() && !l.startsWith('WARNING') && !l.startsWith('Deprecated'));
@@ -172,15 +256,17 @@ app.post('/api/download', async (req, res) => {
 
   let args;
   if (type === 'audio') {
-    args = [...YT_DLP, '--no-playlist', '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', tmpFile, singleUrl];
+    args = [...YT_DLP_BASE, '--no-playlist', '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', tmpFile, singleUrl];
   } else if (format_id) {
-    args = [...YT_DLP, '--no-playlist', '-f', `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/best`, '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
+    args = [...YT_DLP_BASE, '--no-playlist', '-f', `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/best`, '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
   } else {
-    args = [...YT_DLP, '--no-playlist', '-f', 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
+    args = [...YT_DLP_BASE, '--no-playlist', '-f', 'bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]+bestaudio/best[ext=mp4]/best', '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
   }
 
-  const proc = spawn(args[0], args.slice(1), {
-    stdio: ['ignore', 'pipe', 'pipe']
+  const spawnReq = buildYtDlpArgs(args.slice(1));
+  const proc = spawn(spawnReq.args[0], spawnReq.args.slice(1), {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: spawnReq.env
   });
 
   // Manual timeout since spawn() doesn't support timeout option

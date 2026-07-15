@@ -52,6 +52,30 @@ Jika belum ada:
 
 Atau download manual dari https://ffmpeg.org/download.html
 
+Jika server masih melaporkan "ffmpeg not found", jalankan salah satu opsi berikut sebelum men-start server:
+
+- Set variabel lingkungan `FFMPEG_LOCATION` ke folder yang berisi `ffmpeg.exe` (contoh `C:\Path\To\ffmpeg\bin`) lalu jalankan `npm start`.
+
+PowerShell (session):
+
+```powershell
+$env:FFMPEG_LOCATION = 'C:\Path\To\ffmpeg\bin'
+npm start
+```
+
+CMD (session):
+
+```cmd
+set FFMPEG_LOCATION=C:\Path\To\ffmpeg\bin
+npm start
+```
+
+Atau panggil `yt-dlp` secara langsung dengan argumen `--ffmpeg-location`:
+
+```powershell
+yt-dlp --ffmpeg-location "C:\Path\To\ffmpeg\bin" "<VIDEO_URL>"
+```
+
 ---
 
 ## Cara Install

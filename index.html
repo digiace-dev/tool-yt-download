@@ -687,6 +687,11 @@
       }, 300);
     }
 
+    function nowStr() {
+      const d = new Date();
+      return d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour12: false });
+    }
+
     function stopProgressSimulation(success = true) {
       if (progressInterval) {
         clearInterval(progressInterval);
@@ -694,7 +699,7 @@
       }
       if (success) {
         progressFill.style.width = '100%';
-        progressText.textContent = 'Download complete! 100%';
+        progressText.textContent = `Download complete! 100% [${nowStr()}]`;
         setTimeout(() => {
           progressContainer.classList.remove('visible');
           progressFill.style.width = '0%';
