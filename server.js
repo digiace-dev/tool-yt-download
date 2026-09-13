@@ -113,6 +113,27 @@ function contentDisposition(filename, ext) {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
+function audioContentType(ext) {
+  switch ((ext || '').toLowerCase()) {
+    case 'mp3': return 'audio/mpeg';
+    case 'm4a': return 'audio/mp4';
+    case 'webm': return 'audio/webm';
+    case 'opus': return 'audio/opus';
+    case 'ogg': return 'audio/ogg';
+    case 'aac': return 'audio/aac';
+    default: return 'application/octet-stream';
+  }
+}
+
+function findOutputFile(base) {
+  const dir = path.dirname(base);
+  const name = path.basename(base);
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.startsWith(name + '.'));
+    return files.length ? path.join(dir, files[0]) : null;
+  } catch (_) { return null; }
+}
+
 function isThreads(url) {
   return /threads\.(com|net)/i.test(url);
 }
@@ -220,7 +241,7 @@ app.post('/api/info', async (req, res) => {
 });
 
 app.post('/api/download', async (req, res) => {
-  const { url, type, format_id, filename } = req.body;
+  const { url, type, format_id, filename, bitrate } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   const baseName = filename ? sanitizeFilename(filename) : 'download';
@@ -251,12 +272,18 @@ app.post('/api/download', async (req, res) => {
     return;
   }
 
-  const ext = type === 'audio' ? 'mp3' : 'mp4';
-  const tmpFile = path.join(os.tmpdir(), `dl-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+  const isOriginalAudio = type === 'audio' && bitrate === 'original';
+  let ext = type === 'audio' ? 'mp3' : 'mp4';
+  const tmpBase = path.join(os.tmpdir(), `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  let tmpFile = `${tmpBase}.${ext}`;
 
   let args;
-  if (type === 'audio') {
-    args = [...YT_DLP_BASE, '--no-playlist', '-x', '--audio-format', 'mp3', '--audio-quality', '0', '-o', tmpFile, singleUrl];
+  if (type === 'audio' && isOriginalAudio) {
+    ext = null;
+    args = [...YT_DLP_BASE, '--no-playlist', '-x', '--audio-format', 'best', '-o', `${tmpBase}.%(ext)s`, singleUrl];
+  } else if (type === 'audio') {
+    const quality = bitrate || '320K';
+    args = [...YT_DLP_BASE, '--no-playlist', '-x', '--audio-format', 'mp3', '--audio-quality', quality, '-o', tmpFile, singleUrl];
   } else if (format_id) {
     args = [...YT_DLP_BASE, '--no-playlist', '-f', `${format_id}+bestaudio[ext=m4a]/${format_id}+bestaudio/best`, '--merge-output-format', 'mp4', '-o', tmpFile, singleUrl];
   } else {
@@ -280,6 +307,7 @@ app.post('/api/download', async (req, res) => {
   proc.on('error', () => {
     res.status(500).json({ error: 'Failed to start download process.' });
     try { fs.unlinkSync(tmpFile); } catch (_) { }
+    if (isOriginalAudio) { const f = findOutputFile(tmpBase); if (f) try { fs.unlinkSync(f); } catch (_) { } }
   });
 
   proc.on('close', (code) => {
@@ -288,26 +316,38 @@ app.post('/api/download', async (req, res) => {
       const msg = stderrBuf.split('\n').filter(l => l.trim()).pop() || 'Download failed';
       res.status(400).json({ error: msg });
       try { fs.unlinkSync(tmpFile); } catch (_) { }
+      if (isOriginalAudio) { const f = findOutputFile(tmpBase); if (f) try { fs.unlinkSync(f); } catch (_) { } }
       return;
     }
-    res.setHeader('Content-Disposition', contentDisposition(baseName, ext));
-    res.setHeader('Content-Type', type === 'audio' ? 'audio/mpeg' : 'video/mp4');
+
+    let outFile = tmpFile;
+    let outExt = ext;
+    if (isOriginalAudio) {
+      const found = findOutputFile(tmpBase);
+      if (found) {
+        outFile = found;
+        outExt = path.extname(found).replace(/^\./, '') || 'mp3';
+      }
+    }
+
+    res.setHeader('Content-Disposition', contentDisposition(baseName, outExt));
+    res.setHeader('Content-Type', type === 'audio' ? audioContentType(outExt) : 'video/mp4');
     try {
-      const stats = fs.statSync(tmpFile);
+      const stats = fs.statSync(outFile);
       res.setHeader('Content-Length', stats.size);
     } catch (_) { }
-    const stream = fs.createReadStream(tmpFile);
+    const stream = fs.createReadStream(outFile);
     stream.on('error', (err) => {
       if (!res.headersSent) res.status(500).json({ error: 'Download interrupted' });
       else res.destroy();
-      try { fs.unlinkSync(tmpFile); } catch (_) { }
+      try { fs.unlinkSync(outFile); } catch (_) { }
     });
     stream.pipe(res);
     res.on('finish', () => {
-      try { fs.unlinkSync(tmpFile); } catch (_) { }
+      try { fs.unlinkSync(outFile); } catch (_) { }
     });
     res.on('close', () => {
-      try { fs.unlinkSync(tmpFile); } catch (_) { }
+      try { fs.unlinkSync(outFile); } catch (_) { }
     });
   });
 });

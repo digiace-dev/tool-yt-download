@@ -352,6 +352,31 @@
       color: #22c55e;
     }
 
+    .res-chip.audio-only.selected {
+      border-color: #22c55e;
+      background: #132a1a;
+      color: #22c55e;
+      box-shadow: 0 0 10px rgba(34, 197, 94, .15);
+    }
+
+    .audio-selector {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .audio-label {
+      font-size: 12px;
+      color: #888;
+      margin-right: 4px;
+    }
+
+    body.light-mode .audio-label {
+      color: #666;
+    }
+
     .download-actions {
       display: flex;
       gap: 10px;
@@ -476,6 +501,14 @@
           </div>
         </div>
         <div class="res-selector" id="resSelector"></div>
+        <div class="audio-selector" id="audioSelector">
+          <span class="audio-label">Audio Bitrate:</span>
+          <span class="res-chip audio-only selected" data-bitrate="original">Original</span>
+          <span class="res-chip audio-only" data-bitrate="320K">320K</span>
+          <span class="res-chip audio-only" data-bitrate="256K">256K</span>
+          <span class="res-chip audio-only" data-bitrate="192K">192K</span>
+          <span class="res-chip audio-only" data-bitrate="128K">128K</span>
+        </div>
         <div class="download-actions" id="actions">
           <button class="btn btn-download btn-video" data-type="video">Download Video</button>
           <button class="btn btn-download btn-audio" data-type="audio">Download Audio</button>
@@ -523,6 +556,7 @@
     const duration = document.getElementById('duration');
     const resolution = document.getElementById('resolution');
     const resSelector = document.getElementById('resSelector');
+    const audioSelector = document.getElementById('audioSelector');
     const actions = document.getElementById('actions');
     const statusMsg = document.getElementById('statusMsg');
     const progressContainer = document.getElementById('progressContainer');
@@ -530,7 +564,16 @@
     const progressText = document.getElementById('progressText');
 
     let selectedFormatId = null;
+    let selectedBitrate = 'original';
     let progressInterval = null;
+
+    audioSelector.querySelectorAll('.res-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        audioSelector.querySelectorAll('.res-chip').forEach(c => c.classList.remove('selected'));
+        chip.classList.add('selected');
+        selectedBitrate = chip.dataset.bitrate;
+      });
+    });
 
     urlInput.addEventListener('input', () => {
       const p = detectPlatform(urlInput.value);
@@ -717,6 +760,7 @@
       if (detectPlatform(url) === 'threads') dlUrl = dlUrl.replace(/threads\.com/i, 'threads.net');
       const body = { url: dlUrl, type, filename: info.title || '' };
       if (type === 'video' && selectedFormatId) body.format_id = selectedFormatId;
+      if (type === 'audio') body.bitrate = selectedBitrate;
       try {
         const res = await fetch('/api/download', {
           method: 'POST',
