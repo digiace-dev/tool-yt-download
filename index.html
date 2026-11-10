@@ -732,7 +732,15 @@
 
     function nowStr() {
       const d = new Date();
-      return d.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', hour12: false });
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Jakarta',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).formatToParts(d);
+      const get = t => parts.find(p => p.type === t)?.value || '';
+      return `${get('hour')}:${get('minute')}:${get('second')}`;
     }
 
     function stopProgressSimulation(success = true) {
